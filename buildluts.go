@@ -100,6 +100,7 @@ const (
 )
 
 const (
+	IGNORE_MATE     = true
 	MIN_ENEMY_COUNT = 1
 	MAX_ENEMY_COUNT = 16
 	MIN_PIECE_COUNT = 3
@@ -334,6 +335,8 @@ func collect(ch chan *Tables, wg *sync.WaitGroup) {
 			outb.Condition = "Number of pieces"
 			outb.ConditionValue = int32(i + MIN_PIECE_COUNT)
 
+			var cases int32 = 0
+
 			for k := range final.pcount_cp_lut[i][j].board {
 				v := final.pcount_cp_lut[i][j].board[k].value
 				c := final.pcount_cp_lut[i][j].board[k].count
@@ -348,8 +351,11 @@ func collect(ch chan *Tables, wg *sync.WaitGroup) {
 				}
 
 				outb.Board[k] = int32(avg)
+
+				cases += int32(c)
 			}
 
+			outb.NumCases = cases
 			out = append(out, outb)
 		}
 	}
@@ -436,17 +442,23 @@ func process(f *os.File, start int64, end int64, wg *sync.WaitGroup, ch chan *Ta
 
 		var acc int64 = 0
 		var count int64 = 0
+		var best_set bool = false
+		var best int64 = 0
 
 		i := 0
 		for _, v := range p.Evals[i].Pvs {
 			cp := v.Cp
 			if v.Mate != 0 {
+				if IGNORE_MATE {
+					continue
+				}
 				m := v.Mate
 				cp = MATECP
 				if m < 0 {
 					m = -m
 				}
 
+				// TODO maybe just ignore all of these? They are heavy
 				cp -= m * MATECPPER
 				if cp < 0 {
 					//log.Fatalf("Mate too far out! %#v", p)
@@ -462,6 +474,10 @@ func process(f *os.File, start int64, end int64, wg *sync.WaitGroup, ch chan *Ta
 			check_overflow(acc, cp)
 			acc += cp
 			count += 1
+
+			if !best_set || (bs.move == MV_B && cp < best) || (bs.move == MV_W && cp > best) {
+				best = cp
+			}
 		}
 
 		if count == 0 {
@@ -469,6 +485,8 @@ func process(f *os.File, start int64, end int64, wg *sync.WaitGroup, ch chan *Ta
 		}
 
 		avg := acc / count
+
+		//avg := best
 
 		for i, v := range bs.board {
 			if v == P_EMPTY {
@@ -493,26 +511,11 @@ func process(f *os.File, start int64, end int64, wg *sync.WaitGroup, ch chan *Ta
 			tbls.pcount_cp_lut[pcount][v].board[i].value += avg
 			tbls.pcount_cp_lut[pcount][v].board[i].count += 1
 		}
-
-		// for each piece , add to the LuT
-
-		// if they have mate != 0, convert it to centipawn
-
-		// add to the avg table
-		// I don't think we need math/big for this, I think 64 bit is plenty
-		// In [1]: 132053332 (num entries) * 6 (guess on num lines) * 30000 (MATECP) = 0x159e4a8cd680
-		// still, freak out if the table would overflow
-
 		tbls.count += 1
 
 		if (tbls.count & 0x1ffff) == 0x10000 {
 			log.Printf("@ %v", float64(at-start)/float64(end-start))
 		}
-
-		//DEBUG
-		//if tbls.count > 500 {
-		//	break
-		//}
 	}
 
 	// send the table across the channel
