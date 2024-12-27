@@ -278,6 +278,7 @@ type AvgTable struct {
 	Condition      string
 	ConditionValue int32
 	Board          [NUM_SQUARES]int32
+	NumCases       int32
 }
 
 func collect(ch chan *Tables, wg *sync.WaitGroup) {
@@ -302,6 +303,8 @@ func collect(ch chan *Tables, wg *sync.WaitGroup) {
 			outb.Condition = "Number of Enemies"
 			outb.ConditionValue = int32(i + MIN_ENEMY_COUNT)
 
+			var cases int32 = 0
+
 			for k := range final.eleft_cp_lut[i][j].board {
 				v := final.eleft_cp_lut[i][j].board[k].value
 				c := final.eleft_cp_lut[i][j].board[k].count
@@ -316,8 +319,11 @@ func collect(ch chan *Tables, wg *sync.WaitGroup) {
 				}
 
 				outb.Board[k] = int32(avg)
+
+				cases += int32(c)
 			}
 
+			outb.NumCases = cases
 			out = append(out, outb)
 		}
 	}
@@ -502,6 +508,11 @@ func process(f *os.File, start int64, end int64, wg *sync.WaitGroup, ch chan *Ta
 		if (tbls.count & 0x1ffff) == 0x10000 {
 			log.Printf("@ %v", float64(at-start)/float64(end-start))
 		}
+
+		//DEBUG
+		//if tbls.count > 500 {
+		//	break
+		//}
 	}
 
 	// send the table across the channel
